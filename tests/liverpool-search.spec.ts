@@ -10,7 +10,13 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
   await searchInput.fill('playstation 5');
   await searchInput.press('Enter');
 
-  await expect(page).toHaveURL(/playstation/i);
+  // Esperar a que los resultados de búsqueda estén visibles
+  await expect(
+    page.getByRole('heading', {
+      name: /playstation 5/i,
+      level: 1,
+    })
+  ).toBeVisible({ timeout: 15000 });
 
   // Filtrar por color Blanco
   const whiteFilter = page.getByTestId(
@@ -172,7 +178,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
       )
     );
 
-    // Producto no encontrado
+    // Producto no encontrado en API
     if (!apiMatch) {
       console.log(
         `❌ No encontrado en API: ${uiProduct.name}`
@@ -181,7 +187,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
       continue;
     }
 
-    // Producto encontrado, pero precio diferente
+    // Producto encontrado pero con precio diferente
     if (apiMatch.price !== uiProduct.price) {
       console.log(
         `⚠️ Diferencia de precio: ${uiProduct.name}`
