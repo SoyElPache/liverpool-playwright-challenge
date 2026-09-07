@@ -1,30 +1,33 @@
 import { test, expect } from '@playwright/test';
 
 test('buscar playstation 5 en Liverpool', async ({ page }) => {
-  // Navegar a Liverpool
-  await page.goto('https://www.liverpool.com.mx/tienda/home');
+  // Navegar a Liverpool y esperar a que el DOM esté disponible
+  await page.goto('https://www.liverpool.com.mx/tienda/home', {
+    waitUntil: 'domcontentloaded',
+    timeout: 60000,
+  });
 
   // Localizar el buscador
   const searchInput = page.getByRole('textbox', {
     name: /Buscar por producto/i,
   });
 
+  // Esperar explícitamente a que el buscador esté visible
+  await searchInput.waitFor({
+    state: 'visible',
+    timeout: 30000,
+  });
+
   // Buscar Playstation 5
   await searchInput.fill('playstation 5');
   await searchInput.press('Enter');
 
-  /*
-    Esperamos directamente a que aparezcan productos.
-
-    Esto es más estable en CI que depender del cambio de URL
-    o de un encabezado específico.
-  */
-  await page.waitForLoadState('domcontentloaded');
-
+  // Localizar las tarjetas de productos
   const productCards = page.locator(
     '[data-testid$="-card-card-link"]'
   );
 
+  // Esperar a que carguen resultados
   await expect(productCards.first()).toBeVisible({
     timeout: 30000,
   });
@@ -36,20 +39,14 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
 
   await whiteFilter.click();
 
-  // Abrir el menú de ordenamiento
+  // Abrir ordenamiento
   const sortButton = page.getByTestId(
     'dropdown-sorting-button'
   );
 
   await sortButton.click();
 
-  /*
-    Escuchamos la respuesta de la API al mismo tiempo
-    que seleccionamos "Menor precio".
-
-    Promise.all evita que Playwright pierda la respuesta
-    por empezar a escuchar demasiado tarde.
-  */
+  // Interceptar respuesta del backend al ordenar por menor precio
   const [searchResponse] = await Promise.all([
     page.waitForResponse(
       response =>
@@ -66,7 +63,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     }).click(),
   ]);
 
-  // Convertir la respuesta de la API a JSON
+  // Convertir respuesta de API a JSON
   const apiData = await searchResponse.json();
 
   console.log(
@@ -74,22 +71,14 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     searchResponse.url()
   );
 
-  /*
-    Aquí almacenaremos los productos encontrados
-    dentro de la respuesta de la API.
-  */
+  // Guardar productos encontrados en la API
   const apiProducts: {
     productId: string;
     title: string;
     price: number;
   }[] = [];
 
-  /*
-    La respuesta JSON contiene varios niveles.
-
-    Esta función recorre el JSON hasta encontrar objetos
-    que tengan productId, title y salePrice.
-  */
+  // Buscar productos dentro del JSON
   function findProducts(data: any) {
     if (Array.isArray(data)) {
       for (const item of data) {
@@ -118,7 +107,6 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     }
   }
 
-  // Buscar productos dentro de la respuesta
   findProducts(apiData);
 
   console.log(
@@ -126,10 +114,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     apiProducts.length
   );
 
-  /*
-    Aquí guardaremos los primeros cinco productos
-    mostrados en la interfaz.
-  */
+  // Guardar productos encontrados en UI
   const uiProducts: {
     name: string;
     price: number;
@@ -144,19 +129,15 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
 
   console.log('\nPrimeros 5 productos UI:\n');
 
-  // Validar que existan al menos cinco productos
+  // Verificar que existan al menos 5 productos
   expect(totalProducts).toBeGreaterThanOrEqual(5);
 
-  // Extraer los primeros cinco productos
+  // Extraer primeros 5 productos
   for (let i = 0; i < 5; i++) {
     const card = productCards.nth(i);
 
     const text = await card.innerText();
 
-    /*
-      Convertimos el contenido de la tarjeta
-      en líneas independientes.
-    */
     const lines = text
       .split('\n')
       .map(line => line.trim())
@@ -164,21 +145,21 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
 
     const name = lines[1];
 
-    // Encontrar la línea donde comienza el precio
+    // Buscar línea del precio
     const priceText = lines.find(line =>
       line.startsWith('$')
     );
 
     /*
-      Liverpool puede mostrar precios así:
+      Ejemplos que puede devolver Liverpool:
 
       $44900
 
-      o productos con descuento así:
+      o con descuento:
 
       $53900$1,49900
 
-      Esta expresión toma solamente el primer precio.
+      Solo tomamos el primer precio.
     */
     const priceMatch = priceText?.match(
       /^\$([\d,]+?)(\d{2})(?=\$|\s|-|$)/
@@ -200,15 +181,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     );
   }
 
-  /*
-    Normalizamos los textos antes de compararlos.
-
-    Ejemplo:
-    "Consola PS5"
-    "consola ps5"
-
-    serán tratados de manera equivalente.
-  */
+  // Normalizar textos antes de comparar
   const normalizeText = (text: string) =>
     text
       .toLowerCase()
@@ -219,10 +192,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
 
   console.log('\nComparación UI vs API:\n');
 
-  /*
-    Comparamos cada producto mostrado en UI
-    contra los productos recibidos desde la API.
-  */
+  // Comparar productos UI contra API
   for (const uiProduct of uiProducts) {
     const apiMatch = apiProducts.find(apiProduct =>
       normalizeText(apiProduct.title).includes(
@@ -230,7 +200,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
       )
     );
 
-    // Producto no encontrado en la respuesta
+    // Producto no encontrado
     if (!apiMatch) {
       console.log(
         `❌ No encontrado en API: ${uiProduct.name}`
@@ -239,7 +209,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
       continue;
     }
 
-    // El producto existe pero el precio es diferente
+    // Producto encontrado pero precio diferente
     if (apiMatch.price !== uiProduct.price) {
       console.log(
         `⚠️ Diferencia de precio: ${uiProduct.name}`
@@ -268,11 +238,6 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     `\nCoincidencias encontradas: ${matches}/5`
   );
 
-  /*
-    Requisito del challenge:
-
-    Al menos 3 de los primeros 5 productos mostrados
-    en UI deben coincidir con la respuesta de la API.
-  */
+  // El challenge exige mínimo 3 coincidencias de 5
   expect(matches).toBeGreaterThanOrEqual(3);
 });
