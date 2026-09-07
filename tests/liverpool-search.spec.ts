@@ -1,18 +1,29 @@
 import { test, expect } from '@playwright/test';
 
 test('buscar playstation 5 en Liverpool', async ({ page }) => {
-  // Navegar a Liverpool y esperar a que el DOM esté disponible
+  // Navegar al sitio
   await page.goto('https://www.liverpool.com.mx/tienda/home', {
     waitUntil: 'domcontentloaded',
     timeout: 60000,
   });
+
+  // Detectar bloqueo del sitio en CI
+  const accessDenied = page.getByRole('heading', {
+    name: 'Access Denied',
+  });
+
+  if (await accessDenied.isVisible().catch(() => false)) {
+    throw new Error(
+      'Liverpool bloqueó el acceso desde el entorno de ejecución. ' +
+      'La página devolvió Access Denied antes de cargar la aplicación.'
+    );
+  }
 
   // Localizar el buscador
   const searchInput = page.getByRole('textbox', {
     name: /Buscar por producto/i,
   });
 
-  // Esperar explícitamente a que el buscador esté visible
   await searchInput.waitFor({
     state: 'visible',
     timeout: 30000,
@@ -22,12 +33,11 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
   await searchInput.fill('playstation 5');
   await searchInput.press('Enter');
 
-  // Localizar las tarjetas de productos
+  // Localizar tarjetas de productos
   const productCards = page.locator(
     '[data-testid$="-card-card-link"]'
   );
 
-  // Esperar a que carguen resultados
   await expect(productCards.first()).toBeVisible({
     timeout: 30000,
   });
@@ -46,7 +56,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
 
   await sortButton.click();
 
-  // Interceptar respuesta del backend al ordenar por menor precio
+  // Interceptar respuesta de la API al ordenar por menor precio
   const [searchResponse] = await Promise.all([
     page.waitForResponse(
       response =>
@@ -63,7 +73,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     }).click(),
   ]);
 
-  // Convertir respuesta de API a JSON
+  // Convertir respuesta a JSON
   const apiData = await searchResponse.json();
 
   console.log(
@@ -71,14 +81,13 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     searchResponse.url()
   );
 
-  // Guardar productos encontrados en la API
+  // Productos encontrados en la API
   const apiProducts: {
     productId: string;
     title: string;
     price: number;
   }[] = [];
 
-  // Buscar productos dentro del JSON
   function findProducts(data: any) {
     if (Array.isArray(data)) {
       for (const item of data) {
@@ -114,7 +123,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     apiProducts.length
   );
 
-  // Guardar productos encontrados en UI
+  // Productos encontrados en UI
   const uiProducts: {
     name: string;
     price: number;
@@ -129,10 +138,8 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
 
   console.log('\nPrimeros 5 productos UI:\n');
 
-  // Verificar que existan al menos 5 productos
   expect(totalProducts).toBeGreaterThanOrEqual(5);
 
-  // Extraer primeros 5 productos
   for (let i = 0; i < 5; i++) {
     const card = productCards.nth(i);
 
@@ -145,22 +152,10 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
 
     const name = lines[1];
 
-    // Buscar línea del precio
     const priceText = lines.find(line =>
       line.startsWith('$')
     );
 
-    /*
-      Ejemplos que puede devolver Liverpool:
-
-      $44900
-
-      o con descuento:
-
-      $53900$1,49900
-
-      Solo tomamos el primer precio.
-    */
     const priceMatch = priceText?.match(
       /^\$([\d,]+?)(\d{2})(?=\$|\s|-|$)/
     );
@@ -181,7 +176,7 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     );
   }
 
-  // Normalizar textos antes de comparar
+  // Normalizar texto
   const normalizeText = (text: string) =>
     text
       .toLowerCase()
@@ -192,7 +187,6 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
 
   console.log('\nComparación UI vs API:\n');
 
-  // Comparar productos UI contra API
   for (const uiProduct of uiProducts) {
     const apiMatch = apiProducts.find(apiProduct =>
       normalizeText(apiProduct.title).includes(
@@ -200,7 +194,6 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
       )
     );
 
-    // Producto no encontrado
     if (!apiMatch) {
       console.log(
         `❌ No encontrado en API: ${uiProduct.name}`
@@ -209,7 +202,6 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
       continue;
     }
 
-    // Producto encontrado pero precio diferente
     if (apiMatch.price !== uiProduct.price) {
       console.log(
         `⚠️ Diferencia de precio: ${uiProduct.name}`
@@ -226,7 +218,6 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
       continue;
     }
 
-    // Producto y precio coinciden
     matches++;
 
     console.log(
@@ -238,6 +229,5 @@ test('buscar playstation 5 en Liverpool', async ({ page }) => {
     `\nCoincidencias encontradas: ${matches}/5`
   );
 
-  // El challenge exige mínimo 3 coincidencias de 5
   expect(matches).toBeGreaterThanOrEqual(3);
 });
